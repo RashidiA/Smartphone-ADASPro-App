@@ -32,7 +32,7 @@ Because the application processes video and graphics, the hosting server require
 
 ## 📖 Usage Instructions
 1.  **Deployment:** Upload your source code to a GitHub repository and connect it to **Streamlit Cloud**.
-2.  **Hardware Setup:** Mount your smartphone on a vehicle dashboard or assembly line workstation with a stable, unobstructed view of the area.
+2.  **Hardware Setup:** Mount your smartphone on a vehicle dashboard with a stable, unobstructed view of the area.
 3.  **Initialization:** Open the provided URL in a mobile browser (Chrome or Safari) and tap the **"START SYSTEM"** button. You must grant **Camera** and **Audio** permissions for the AI to function.
 4.  **Visual Indicators:**
     * **Blue Overlays:** Indicates that the system has successfully locked onto **White Road Lines**.
@@ -51,6 +51,6 @@ This software is provided under the **MIT License**. This allows for free use, m
 ## 📊 Developer & Academic Metadata
 * **Core Model:** COCO-SSD (TensorFlow.js)
 * **Vision Engine:** Custom Pixel-Intensity Logic (White-Line Optimized)
-* **Lead Researcher:** Asari Rashidi 
-* **Application:** Automotive Final Assembly Lines & Real-world Road Testing
+* **Lead Developer:** Asari Rashidi 
+* **Application:** Real-world Road Testing
 
