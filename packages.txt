@@ -4,3 +4,4 @@ libglu1-mesa-dev
 libjpeg-dev
 zlib1g-dev
 libpng-dev
+libglvnd-dev
