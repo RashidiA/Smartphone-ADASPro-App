@@ -3,7 +3,7 @@ import streamlit.components.v1 as components
 
 st.set_page_config(page_title="ADAS Pro Full Suite", layout="centered")
 
-st.title("🚗 ADAS Pro: Research Edition")
+st.title("🚗 ADAS Pro: Rahmah Edition")
 st.markdown("Tracking: **White Lines**, **Pedestrians**, and **Road Signs**.")
 
 JS_CODE = """
