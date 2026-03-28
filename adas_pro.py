@@ -5,7 +5,7 @@ import streamlit.components.v1 as components
 st.set_page_config(page_title="ADAS Pro AI", layout="centered")
 
 st.title("🚗 ADAS Pro: Vision Safety")
-st.markdown("Developed for **Mobile Edge Research**.")
+st.markdown("Developed for **Mobile ADAS App**.")
 
 # --- The JavaScript "Java-Speed" Engine ---
 # This code runs directly on the phone's GPU using WebGL.
