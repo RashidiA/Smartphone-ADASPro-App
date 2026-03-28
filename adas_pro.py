@@ -1,102 +1,114 @@
 import streamlit as st
 import streamlit.components.v1 as components
 
-# --- App Config ---
-st.set_page_config(page_title="ADAS Pro AI", layout="centered")
+st.set_page_config(page_title="ADAS Pro Full Suite", layout="centered")
 
-st.title("🚗 ADAS Pro: Vision Safety")
-st.markdown("Developed for **Mobile ADAS App**.")
+st.title("🚗 ADAS Pro: Research Edition")
+st.markdown("Tracking: **White Lines**, **Pedestrians**, and **Road Signs**.")
 
-# --- The JavaScript "Java-Speed" Engine ---
-# This code runs directly on the phone's GPU using WebGL.
 JS_CODE = """
 <div style="position: relative; width: 100%; border-radius: 15px; overflow: hidden; background: #000;">
     <video id="video" autoplay playsinline style="width: 100%; height: auto; display: block;"></video>
     <canvas id="output" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"></canvas>
     
-    <div id="pede_warning" style="position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); padding: 20px; background: rgba(255,0,0,0.9); color: white; font-weight: bold; font-size: 24px; border-radius: 10px; display: none; border: 4px solid white; text-align: center; width: 80%;">🛑 BRAKE: PEDESTRIAN</div>
-    <div id="lane_warning" style="position: absolute; top: 10%; left: 10px; padding: 10px; background: rgba(255,165,0,0.8); color: white; border-radius: 5px; display: none;">⚠️ LANE DRIFT</div>
-    <div id="speed_sign" style="position: absolute; top: 20px; right: 20px; width: 60px; height: 60px; background: white; border: 4px solid red; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 20px; color: black;">--</div>
-</div>
+    <div id="overlay" style="position: absolute; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.8); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100;">
+        <button id="startBtn" style="padding: 15px 30px; font-size: 20px; border-radius: 10px; border: none; background: #00FF00; color: black; font-weight: bold;">START SYSTEM</button>
+        <p id="status" style="color: white; margin-top: 10px;">Loading Vision Engines...</p>
+    </div>
 
-<audio id="alert_sound" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
+    <div id="pede_warning" style="position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); padding: 20px; background: rgba(255,0,0,0.9); color: white; font-weight: bold; font-size: 24px; border-radius: 10px; display: none; width: 80%; text-align: center; border: 4px solid white;">🛑 BRAKE: OBJECT DETECTED</div>
+    <div id="sign_indicator" style="position: absolute; top: 20px; right: 20px; width: 70px; height: 70px; background: white; border: 5px solid red; border-radius: 50%; display: none; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; color: black; text-align: center;">SIGN</div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
-<script async src="https://docs.opencv.org/4.x/opencv.js" type="text/javascript"></script>
 
 <script>
 const video = document.getElementById('video');
 const canvas = document.getElementById('output');
 const ctx = canvas.getContext('2d', {alpha: false});
+const status = document.getElementById('status');
+const startBtn = document.getElementById('startBtn');
+const overlay = document.getElementById('overlay');
 const pedeWarn = document.getElementById('pede_warning');
-const laneWarn = document.getElementById('lane_warning');
-const speedSign = document.getElementById('speed_sign');
-const beep = document.getElementById('alert_sound');
+const signInd = document.getElementById('sign_indicator');
 
 let model;
+let frameCount = 0;
 
-// 1. Setup AI Model
 async function init() {
     model = await cocoSsd.load();
-    const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } } 
-    });
-    video.srcObject = stream;
-    video.onloadedmetadata = () => { predict(); };
+    status.innerText = "All Models Loaded. Ready.";
+    
+    startBtn.onclick = async () => {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: 'environment', width: { ideal: 640 } } 
+        });
+        video.srcObject = stream;
+        overlay.style.display = "none";
+        video.onloadedmetadata = () => { render(); };
+    };
 }
 
-// 2. High-Frequency Prediction Loop
-async function predict() {
+function render() {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     ctx.drawImage(video, 0, 0);
 
-    const predictions = await model.detect(video);
-    let pedestrianInDanger = false;
+    // --- 1. WHITE LINE TRACKER (RUNS EVERY FRAME) ---
+    const roadTop = Math.floor(canvas.height * 0.65);
+    const roadHeight = Math.floor(canvas.height * 0.35);
+    const imageData = ctx.getImageData(0, roadTop, canvas.width, roadHeight);
+    const data = imageData.data;
 
-    predictions.forEach(p => {
-        const [x, y, w, h] = p.bbox;
-        const centerX = x + (w / 2);
-
-        // Pedestrian Logic
-        if (p.class === 'person' && p.score > 0.5) {
-            ctx.strokeStyle = "#FF0000";
-            ctx.lineWidth = 3;
-            ctx.strokeRect(x, y, w, h);
-            
-            // Check if in "Collision Zone" (Center 40% of view)
-            if (centerX > canvas.width * 0.3 && centerX < canvas.width * 0.7) {
-                pedestrianInDanger = true;
-            }
+    for (let i = 0; i < data.length; i += 4) {
+        // High RGB values = White
+        if (data[i] > 215 && data[i+1] > 215 && data[i+2] > 215) { 
+            data[i] = 0; data[i+1] = 100; data[i+2] = 255; // Blue Marker
         }
-
-        // Speed Sign Detection (Approximation)
-        if (p.class === 'stop sign') speedSign.innerText = "STOP";
-    });
-
-    // Lane Detection (Simplified Intensity Check)
-    const frame = ctx.getImageData(0, canvas.height * 0.8, canvas.width, 20);
-    let leftWhite = 0;
-    for (let i = 0; i < frame.data.length / 2; i += 4) {
-        if (frame.data[i] > 200) leftWhite++;
     }
-    
-    // UI Updates
-    if (pedestrianInDanger) { pedeWarn.style.display = "block"; beep.play(); }
-    else { pedeWarn.style.display = "none"; }
-    
-    laneWarn.style.display = (leftWhite > 50) ? "block" : "none";
+    ctx.putImageData(imageData, 0, roadTop);
 
-    requestAnimationFrame(predict);
+    // --- 2. AI OBJECTS & SIGNS (RUNS EVERY 7TH FRAME FOR SMOOTHNESS) ---
+    if (frameCount % 7 === 0) {
+        model.detect(video).then(preds => {
+            let personDanger = false;
+            let signFound = false;
+            let signLabel = "";
+
+            preds.forEach(p => {
+                // Check for Pedestrians
+                if (p.class === 'person' && p.score > 0.5) {
+                    const centerX = p.bbox[0] + (p.bbox[2]/2);
+                    if (centerX > canvas.width * 0.25 && centerX < canvas.width * 0.75) personDanger = true;
+                }
+                // Check for Traffic Signs
+                if (['stop sign', 'traffic light'].includes(p.class) && p.score > 0.4) {
+                    signFound = true;
+                    signLabel = p.class.toUpperCase();
+                }
+            });
+
+            pedeWarn.style.display = personDanger ? "block" : "none";
+            if (signFound) {
+                signInd.style.display = "flex";
+                signInd.innerText = signLabel;
+            } else {
+                signInd.style.display = "none";
+            }
+        });
+    }
+
+    frameCount++;
+    requestAnimationFrame(render);
 }
-
 init();
 </script>
 """
 
-# Render the component
-components.html(JS_CODE, height=500)
+components.html(JS_CODE, height=550)
 
 st.divider()
-st.info("**Research Mode:** Logs are captured in real-time. Pedestrian detection uses the COCO-SSD MobileNetV2 architecture for low-latency inference.")
+st.sidebar.header("PhD Project Controls")
+st.sidebar.write("System: **Mobile Edge AI**")
+st.sidebar.write("Architecture: **Hybrid WASM/Python**")
