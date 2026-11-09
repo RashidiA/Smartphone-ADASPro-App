@@ -4,6 +4,8 @@ A phone-based **driver-assistance (ADAS Level-2 style) demo**. It opens the phon
 
 > ⚠️ **Learning / prototype tool – not a certified safety system.** The driver stays fully responsible. Do not rely on it, and do not operate it while driving; have a passenger set it up.
 
+**Live app:** https://smartphone-adaspro-app-2uumyn58jvniwsku8uspgu.streamlit.app/
+
 ## What it detects and warns
 
 | Feature | How | Warning |
@@ -32,7 +34,7 @@ pip install streamlit
 streamlit run adas_pro.py
 ```
 
-Camera and GPS need **HTTPS**. Deploy to Streamlit Community Cloud (only `streamlit` in `requirements.txt`), open the app URL on the phone in **Chrome**, allow **camera** and **location**, and press **START ADAS**. The first start downloads the AI model (a few MB).
+Camera and GPS need **HTTPS**. Deploy to Streamlit Community Cloud (only `streamlit` in `requirements.txt`), open the app URL (https://smartphone-adaspro-app-2uumyn58jvniwsku8uspgu.streamlit.app/) on the phone in **Chrome**, allow **camera** and **location**, and press **START ADAS**. The first start downloads the AI model (a few MB).
 
 ## Set-up in the car
 
