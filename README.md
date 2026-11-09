@@ -1,56 +1,71 @@
-# 🚗 ADAS Pro: Mobile Edge AI Vision System
+# ADAS Pro: Rahmah Version 🚗📱
 
-An advanced **Advanced Driver Assistance System (ADAS)** designed specifically for mobile browsers. This project utilizes a **Heterogeneous Architecture** (combining Python/Streamlit with JavaScript/WebAssembly) to provide real-time safety analytics directly on the device, avoiding the latency of traditional server-side processing.
+A phone-based **driver-assistance (ADAS Level-2 style) demo**. It opens the phone's rear camera in the browser, shows the live road view and draws **camera-overlay (AR-style)** boxes, a **blue lane overlay** and **audible / visual / vibration warnings**. All processing runs **on the phone** (edge computing) – no video is sent to a server.
 
----
+> ⚠️ **Learning / prototype tool – not a certified safety system.** The driver stays fully responsible. Do not rely on it, and do not operate it while driving; have a passenger set it up.
 
-## 🔬 Learning Context
-This application serves as a prototype for investigating **Computer Vision efficiency on Edge Devices**. It specifically targets:
-* **Lane Departure Warning (LDW):** Real-time pixel-intensity mapping for white line tracking, visualized with **Blue AR Overlays**.
-* **Pedestrian Collision Warning (PCW):** COCO-SSD MobileNetV2 inference to identify localized safety zones.
-* **Road Sign Recognition:** Dynamic identification of regulatory signage such as Stop Signs and Traffic Lights.
+## What it detects and warns
 
-## 🚀 Key Technical Features
-* **Zero-Latency AR:** Employs `{desynchronized: true}` WebGL rendering to eliminate visual input lag.
-* **Hybrid Execution:** Uses **Python** for the application interface and **JavaScript/WASM** for high-frequency (30 FPS) vision tasks.
-* **Resource Optimized:** Implements a **Priority Queue** where lightweight tasks run every frame, while heavy AI inference runs every 7th frame to prevent device overheating.
+| Feature | How | Warning |
+|---|---|---|
+| **Lane lines** | White lines found by scanline analysis, fitted to straight lines; dotted lines bridged for 0.9 s | Continuous **blue overlay**; **LANE DEPARTURE (LEFT/RIGHT)** when the car centre drifts beyond the set sensitivity (overlay turns red) |
+| **Vehicles** (car, truck, bus, motorcycle) | COCO-SSD lite, WebGL | **VEHICLE AHEAD**, **COLLISION WARNING** from estimated distance and time-to-collision (TTC) |
+| **Pedestrians / cyclists** | COCO-SSD | **PEDESTRIAN**, **PEDESTRIAN IN PATH** |
+| **Animals** (dog, cat, horse, cow, sheep) | COCO-SSD | **ANIMAL ON ROAD**, **ANIMAL IN PATH** |
+| **Traffic lights** | COCO-SSD + red/yellow/green pixel check | **RED LIGHT**, **YELLOW LIGHT**, green info |
+| **Stop signs** | COCO-SSD | **STOP SIGN AHEAD** |
+| **Speed-limit signs** | *Optional custom model* (see below) | **SPEED LIMIT n**, **OVER SPEED LIMIT** (GPS speed) |
 
----
+Alerts: top banner (amber = caution, orange = warning, flashing red = danger), beeps (more beeps = higher level) and vibration (Android Chrome).
 
-## 🛠️ System Configuration
+## Why it is fast
 
-### 1. Python Requirements
-To ensure the application runs correctly on the Streamlit server, you must create a file named `requirements.txt` in your main folder and include the following libraries:
-* **Streamlit** (version 1.35.0 or higher)
-* **Pandas** and **Numpy** for data handling
-* **Pillow** for image processing compatibility
+* The video is displayed natively; boxes and lanes are drawn on a transparent canvas on top (no per-frame pixel copy of the whole image).
+* AI runs on a **small 320 px copy** of the frame, on the GPU (WebGL), in its own loop that never overlaps itself (max rate adjustable).
+* Lane detection reads only ~18 rows of a 320 px image every 2nd frame (≈1 ms).
+* In a headless-browser test with a stubbed model the page rendered at 30 fps. Real speed depends on the phone: expect roughly 10–20 AI frames per second on a good phone with the *Fast* mode.
 
-### 2. Linux System Dependencies
-Because the application processes video and graphics, the hosting server requires specific Linux-level headers. Create a file named `packages.txt` in your root directory and add the necessary graphics libraries (such as `freeglut3-dev`, `libgl1`, and `libpng-dev`) to allow the server to render the vision components correctly.
+## Install and run
 
----
+```bash
+pip install streamlit
+streamlit run adas_pro.py
+```
 
-## 📖 Usage Instructions
-1.  **Deployment:** Upload your source code to a GitHub repository and connect it to **Streamlit Cloud**.
-2.  **Hardware Setup:** Mount your smartphone on a vehicle dashboard with a stable, unobstructed view of the area.
-3.  **Initialization:** Open the provided URL in a mobile browser (Chrome or Safari) and tap the **"START SYSTEM"** button. You must grant **Camera** and **Audio** permissions for the AI to function.
-4.  **Visual Indicators:**
-    * **Blue Overlays:** Indicates that the system has successfully locked onto **White Road Lines**.
-    * **Red "BRAKE" Alert:** Appears instantly if an object or person enters the central collision zone.
-    * **Top-Right Indicator:** Displays recognized road signs in real-time.
+Camera and GPS need **HTTPS**. Deploy to Streamlit Community Cloud (only `streamlit` in `requirements.txt`), open the app URL on the phone in **Chrome**, allow **camera** and **location**, and press **START ADAS**. The first start downloads the AI model (a few MB).
 
----
+## Set-up in the car
 
-## ⚖️ License (MIT)
-**Copyright (c) 2026 Asari-Rashidi Energy Model Research Group**
+1. Mount the phone **centred on the windscreen**, camera level with the road, in landscape.
+2. In the sidebar set **Horizon height** (where road meets sky) and **Bonnet cut-off** so the lane search sees only the road.
+3. Set the camera **field of view** (typically 65–75°) – used for the distance estimate.
+4. While driving centred, press **⌖ Set centre** once if the camera is not exactly in the middle.
+5. Press **↔ Lane change** while signalling to mute the lane warning.
 
-This software is provided under the **MIT License**. This allows for free use, modification, and distribution, provided that the original copyright notice and this permission notice are included in all copies or substantial portions of the software. The software is provided "as is," without warranty of any kind.
+## Sidebar controls
 
----
+Feature toggles (lane, vehicles, pedestrians, animals, signs), sound, vibration, lane sensitivity, minimum speed for lane warning (GPS), TTC and minimum gap for collision warning, performance mode (*Fast* = lite MobileNet, *Balanced*, *Accurate*), AI input width, AI rate, camera width, horizon, bonnet and field of view.
 
-## 📊 Developer & Academic Metadata
-* **Core Model:** COCO-SSD (TensorFlow.js)
-* **Vision Engine:** Custom Pixel-Intensity Logic (White-Line Optimized)
-* **Lead Developer:** Asari Rashidi 
-* **Application:** Real-world Road Testing
+## Optional: speed-limit signs (custom model)
 
+COCO has no speed-limit class. To add it:
+
+1. Train a small detector (e.g. YOLO nano) on speed-limit signs, ideally including **Malaysian** signs, and convert it to **TensorFlow.js** (`model.json`).
+2. Host it over HTTPS and paste the URL into **Custom sign model** in the sidebar.
+3. Edit `customSignDetect()` in `adas_pro.py` to decode your model's output and return `{class: "speed limit 50", score, bbox:[x, y, w, h]}`. Class names starting with `speed limit` plus a number trigger the limit display and the over-speed warning.
+
+## Limits
+
+* Straight-line lane model, assumes white lines, a roughly centred camera and decent light. Curves, worn paint, night rain and glare reduce accuracy.
+* Distance and TTC come from box size and the field of view you set – approximate only.
+* Traffic-light colour is a simple pixel check and can fail in glare.
+* No pose skeletons or segmentation outlines (they would slow a phone too much).
+* Web browsers limit camera frame rate, background running and sensor access.
+
+## For true real-time
+
+Port the same logic to a **native app**: Android (Kotlin, CameraX, TensorFlow Lite / LiteRT with GPU or NNAPI delegate, YOLOv8n / YOLO11n INT8 at 320–416 px) or iOS (Swift, Core ML). Expect 25–40 fps. Python does not run on the phone; Streamlit only serves the page.
+
+## Part of the Automotive Knowledge Hub
+
+Collaborators welcome: developers, ADAS / computer-vision engineers, educators and students.
