@@ -17,7 +17,8 @@ st.sidebar.subheader("Detect")
 use_lane = st.sidebar.toggle("Lane keeping (blue overlay + departure warning)", value=True)
 use_veh = st.sidebar.toggle("Vehicles + collision warning", value=True)
 use_ped = st.sidebar.toggle("Pedestrians / cyclists", value=True)
-use_sign = st.sidebar.toggle("Traffic lights + stop signs", value=True)
+use_ani = st.sidebar.toggle("Animals (dog, cat, horse, cow, sheep)", value=True)
+use_sign = st.sidebar.toggle("Traffic lights, stop signs + speed-limit signs", value=True)
 st.sidebar.subheader("Alerts")
 sound = st.sidebar.toggle("Sound", value=True)
 vibrate = st.sidebar.toggle("Vibration (Android)", value=True)
@@ -35,11 +36,13 @@ st.sidebar.subheader("Camera set-up")
 horizon = st.sidebar.slider("Horizon height (% from top)", 30, 70, 50, help="Where the road meets the sky. Lane search starts just below this line.") / 100
 hood = st.sidebar.slider("Bonnet cut-off (% from top)", 70, 100, 92, help="Ignore the dashboard / bonnet at the bottom of the picture.") / 100
 fov = st.sidebar.slider("Camera horizontal field of view (°)", 50, 90, 68, help="Used for the distance estimate. Typical phone main camera: 65-75°.")
+st.sidebar.subheader("Custom sign model (optional)")
+sign_model_url = st.sidebar.text_input("TFJS model URL (model.json) for speed-limit signs", value="", help="Leave empty to disable. See README.").strip()
 st.sidebar.divider()
 st.sidebar.warning("Driver-assistance DEMO for learning. Not certified, not a replacement for driver attention.")
 
 cfg = {
-    "useLane": use_lane, "useVeh": use_veh, "usePed": use_ped, "useSign": use_sign,
+    "useLane": use_lane, "useVeh": use_veh, "usePed": use_ped, "useSign": use_sign, "useAni": use_ani, "signModelUrl": sign_model_url,
     "sound": sound, "vibrate": vibrate, "laneThr": lane_thr, "laneMinKmh": lane_min_kmh, "unknownMoving": unknown_moving,
     "ttc": ttc, "minDist": min_dist, "detW": det_w, "detFps": det_fps, "camW": cam_w,
     "base": {"Fast (recommended for phones)": "lite_mobilenet_v2", "Balanced": "mobilenet_v1", "Accurate (slower)": "mobilenet_v2"}[perf],
@@ -94,7 +97,9 @@ const tlCv   = document.createElement('canvas'); tlCv.width = 12; tlCv.height = 
 const tctx   = tlCv.getContext('2d', {willReadFrequently: true});
 const VEH = new Set(['car', 'truck', 'bus', 'motorcycle']);
 const PED = new Set(['person', 'bicycle']);
-const REALH = {person: 1.7, bicycle: 1.5, car: 1.5, motorcycle: 1.4, bus: 3.2, truck: 3.0, 'stop sign': 0.75};
+const ANI = new Set(['dog', 'cat', 'horse', 'cow', 'sheep']);
+let curLimit = 0, limitT = 0;
+const REALH = {person: 1.7, bicycle: 1.5, car: 1.5, motorcycle: 1.4, bus: 3.2, truck: 3.0, 'stop sign': 0.75, dog: 0.5, cat: 0.3, horse: 1.6, cow: 1.4, sheep: 0.8};
 
 /* ------------------------------------------------------------------ state */
 let model = null, running = false, audioCtx = null;
@@ -250,9 +255,9 @@ function handleDetections(preds, sx, sy, now) {
   const objs = [];
   for (const p of preds) {
     const c = p.class; if (p.score < CFG.minScore) continue;
-    const kind = VEH.has(c) ? 'veh' : PED.has(c) ? 'ped' : (c === 'traffic light' || c === 'stop sign') ? 'sign' : null;
+    const kind = VEH.has(c) ? 'veh' : PED.has(c) ? 'ped' : ANI.has(c) ? 'ani' : (c === 'traffic light' || c === 'stop sign' || c.startsWith('speed limit')) ? 'sign' : null;
     if (!kind) continue;
-    if (kind === 'veh' && !CFG.useVeh) continue; if (kind === 'ped' && !CFG.usePed) continue; if (kind === 'sign' && !CFG.useSign) continue;
+    if (kind === 'veh' && !CFG.useVeh) continue; if (kind === 'ped' && !CFG.usePed) continue; if (kind === 'ani' && !CFG.useAni) continue; if (kind === 'sign' && !CFG.useSign) continue;
     const o = {cls: c, kind, score: p.score, x: p.bbox[0] * sx, y: p.bbox[1] * sy, w: p.bbox[2] * sx, h: p.bbox[3] * sy};
     o.cx = o.x + o.w / 2; o.by = o.y + o.h;
     o.dist = REALH[c] ? Math.max(1, f * REALH[c] / Math.max(4, o.h)) : null;
@@ -293,6 +298,14 @@ function evaluate(objs) {
       if (o.inPath && o.d !== null && o.d < 15) setAlert('ped' + o.id, 'PEDESTRIAN IN PATH' + dTxt, 3, 700);
       else if (o.nearPath || o.inPath) setAlert('ped' + o.id, 'PEDESTRIAN' + dTxt, 2, 700);
       else if (o.d !== null && o.d < 30) setAlert('ped' + o.id, 'PEDESTRIAN NEARBY' + dTxt, 1, 700);
+    } else if (o.kind === 'ani') {
+      const nm = o.cls.toUpperCase();
+      if (o.inPath && o.d !== null && o.d < 12) setAlert('ani' + o.id, 'ANIMAL IN PATH (' + nm + ')' + dTxt, 3, 700);
+      else if (o.nearPath || o.inPath) setAlert('ani' + o.id, 'ANIMAL ON ROAD (' + nm + ')' + dTxt, 2, 700);
+      else if (o.d !== null && o.d < 25) setAlert('ani' + o.id, nm + ' NEARBY' + dTxt, 1, 700);
+    } else if (o.cls.startsWith('speed limit')) {
+      const lim = parseInt(o.cls.replace(/\D/g, ''), 10);
+      if (lim > 0) { curLimit = lim; limitT = performance.now(); setAlert('lim', 'SPEED LIMIT ' + lim, 0, 3000); }
     } else if (o.cls === 'stop sign' && o.nearPath) setAlert('stop', 'STOP SIGN AHEAD', 2, 900);
     else if (o.cls === 'traffic light' && Math.abs(o.cx - video.videoWidth / 2) < 0.3 * video.videoWidth) {
       if (!lightObj || o.h > lightObj.h) lightObj = o;
@@ -356,8 +369,8 @@ function drawObjs(now) {
   if (now - lastDetT > 1200) return;
   octx.font = `600 ${Math.max(13, video.videoWidth * 0.026)}px system-ui`; octx.textBaseline = 'bottom';
   for (const o of lastObjs) {
-    const danger = (o.kind === 'veh' && o.inPath && ((o.ttc !== null && o.ttc < CFG.ttc) || (o.d !== null && o.d < CFG.minDist))) || (o.kind === 'ped' && o.inPath && o.d !== null && o.d < 15);
-    const col = danger ? '#ff2d2d' : o.kind === 'veh' ? '#39ff14' : o.kind === 'ped' ? '#ff4dd2' : '#ffd400';
+    const danger = (o.kind === 'veh' && o.inPath && ((o.ttc !== null && o.ttc < CFG.ttc) || (o.d !== null && o.d < CFG.minDist))) || ((o.kind === 'ped' || o.kind === 'ani') && o.inPath && o.d !== null && o.d < (o.kind === 'ani' ? 12 : 15));
+    const col = danger ? '#ff2d2d' : o.kind === 'veh' ? '#39ff14' : o.kind === 'ped' ? '#ff4dd2' : o.kind === 'ani' ? '#ff9f1a' : '#ffd400';
     octx.strokeStyle = col; octx.lineWidth = danger ? 5 : 3; octx.strokeRect(o.x, o.y, o.w, o.h);
     let label = o.cls === 'traffic light' && o.light && o.light !== 'unknown' ? 'light ' + o.light : o.cls;
     if (o.d) label += ' ' + o.d.toFixed(0) + 'm'; if (o.ttc !== null && o.ttc < 6) label += ' TTC ' + o.ttc.toFixed(1) + 's';
@@ -376,10 +389,24 @@ function frame(now) {
     drawObjs(now); updateBanner(now);
     fpsCount++;
     if (now - fpsT > 1000) { fpsVal = fpsCount * 1000 / (now - fpsT); fpsCount = 0; fpsT = now;
+      if (curLimit && now - limitT < 20000 && egoSpeed !== null && egoSpeed * 3.6 > curLimit + 5) setAlert('over', 'OVER SPEED LIMIT (' + curLimit + ')', 2, 1500);
       $('fpsChip').textContent = fpsVal.toFixed(0) + ' fps'; $('detChip').textContent = model ? 'AI ' + detMs.toFixed(0) + ' ms' : 'AI off';
       const lc = $('laneChip'); lc.textContent = lane.status + (lane.ready ? ' ' + (lane.offset >= 0 ? '+' : '') + lane.offset.toFixed(2) : ''); lc.style.color = lane.warn ? '#ff6b6b' : '#7CFC00'; }
   }
   if (video.requestVideoFrameCallback) video.requestVideoFrameCallback((t) => frame(t)); else requestAnimationFrame(frame);
+}
+
+/* ------------------------------------------------------------------ OPTIONAL custom road-sign model (speed limits etc.)
+   Plug in your own TFJS model here (e.g. YOLO-nano trained on Malaysian signs). Return an array of
+   {class: 'speed limit 50', score: 0.9, bbox: [x, y, w, h]} in the pixel coordinates of `canvas`.
+   Class names that start with 'speed limit' + number are used for the speed-limit display and over-speed warning.        */
+let signModel = null;
+async function customSignDetect(canvas) {
+  if (!signModel) return [];
+  // Example (edit for your model's output format):
+  //   const x = tf.tidy(() => tf.browser.fromPixels(canvas).resizeBilinear([320, 320]).div(255).expandDims(0));
+  //   const out = await signModel.executeAsync(x); ... decode boxes + NMS ...
+  return [];
 }
 
 /* ------------------------------------------------------------------ detection loop (separate from rendering, never overlaps itself) */
@@ -387,12 +414,13 @@ async function detectLoop() {
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   while (running) {
     const t0 = performance.now();
-    if (model && video.readyState >= 2 && !document.hidden && (CFG.useVeh || CFG.usePed || CFG.useSign)) {
+    if (model && video.readyState >= 2 && !document.hidden && (CFG.useVeh || CFG.usePed || CFG.useAni || CFG.useSign)) {
       try {
         const vw = video.videoWidth, vh = video.videoHeight, dw = CFG.detW, dh = Math.round(dw * vh / vw);
         if (detCv.width !== dw || detCv.height !== dh) { detCv.width = dw; detCv.height = dh; }
         dctx.drawImage(video, 0, 0, dw, dh);                         // small input = much faster SSD
-        const preds = await model.detect(detCv, 20);
+        let preds = await model.detect(detCv, 20);
+        if (signModel) preds = preds.concat(await customSignDetect(detCv));
         detMs += 0.3 * ((performance.now() - t0) - detMs);
         handleDetections(preds, vw / dw, vh / dh, performance.now());
       } catch (e) { console.warn(e); }
@@ -417,11 +445,12 @@ $('startBtn').onclick = async () => {
   try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
   running = true; $('start').style.display = 'none';
   frame(performance.now());                                          // lane overlay runs immediately, even before the AI model is ready
-  if (CFG.useVeh || CFG.usePed || CFG.useSign) {
+  if (CFG.useVeh || CFG.usePed || CFG.useAni || CFG.useSign) {
     try {
       try { await tf.setBackend('webgl'); } catch (e) {} await tf.ready();
       model = await cocoSsd.load({base: CFG.base});
       await model.detect(detCv.width ? detCv : video, 5);            // warm-up compiles the GPU shaders
+      if (CFG.signModelUrl) { try { signModel = await tf.loadGraphModel(CFG.signModelUrl); } catch (e) { console.warn('sign model failed', e); } }
     } catch (e) { console.warn('model load failed', e); model = null; setAlert('info', 'AI model not loaded - lane only', 1, 4000); }
   }
   detectLoop();
